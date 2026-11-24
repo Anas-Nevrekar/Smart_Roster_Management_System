@@ -144,7 +144,8 @@ class WeeklyOffCoverageTests(unittest.TestCase):
         result = generate_roster(dataset, requirements, state, offs)
 
         self.assertFalse(result["success"])
-        self.assertEqual("weekly_off_allocation_conflict", result["errors"][0]["code"])
+        self.assertEqual("weekly_off_infeasible", result["errors"][0]["code"])
+        self.assertTrue(all(error["exact_cause_established"] for error in result["errors"]))
         self.assertEqual([], result["assignments"])
         self.assertEqual([], state["roster"])
         self.assertTrue(all(not weeks for weeks in offs.values()))

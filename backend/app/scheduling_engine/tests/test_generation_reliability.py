@@ -38,7 +38,7 @@ class GenerationReliabilityTests(unittest.TestCase):
         max_active_calls = 0
         activity_lock = Lock()
         original_search = backtracking._generate_roster
-        original_get_candidates = backtracking.get_candidates
+        original_assign_weekly_off = backtracking.assign_weekly_off
         original_recursion_limit = sys.getrecursionlimit()
         observed_recursion_limits = []
 
@@ -54,9 +54,9 @@ class GenerationReliabilityTests(unittest.TestCase):
                 with activity_lock:
                     active_calls -= 1
 
-        def tracked_get_candidates(*args):
+        def tracked_assign_weekly_off(*args):
             observed_recursion_limits.append(sys.getrecursionlimit())
-            return original_get_candidates(*args)
+            return original_assign_weekly_off(*args)
 
         # Many distinct process requirements force each search beyond the
         # default recursion depth without adding a per-day work restriction.
@@ -84,7 +84,7 @@ class GenerationReliabilityTests(unittest.TestCase):
             return result, state, offs
 
         with patch.object(backtracking, "_generate_roster", tracked_search), \
-                patch.object(backtracking, "get_candidates", tracked_get_candidates):
+                patch.object(backtracking, "assign_weekly_off", tracked_assign_weekly_off):
             with ThreadPoolExecutor(max_workers=2) as executor:
                 futures = [executor.submit(worker) for _ in range(2)]
                 outcomes = [future.result(timeout=15) for future in futures]
@@ -136,6 +136,35 @@ class GenerationReliabilityTests(unittest.TestCase):
         self.assertEqual([], result["assignments"])
         self.assertEqual([], state["roster"])
         self.assertTrue(all(not weeks for weeks in offs.values()))
+
+    def test_impossible_weekly_off_is_reported_before_exhaustive_search(self):
+        dataset = get_dataset("prototype")
+        dataset["employees"] = [e for e in dataset["employees"]
+                                if e["employee_id"] in {"E003", "E004"}]
+        dataset["employee_assignments"] = [{
+            "employee_id": employee_id, "brand_id": "B003",
+            "process_id": "PR003", "is_active": True,
+        } for employee_id in ("E003", "E004")]
+        dataset["employee_time_off"] = []
+        requirements = [{
+            "date": date(2026, 12, day).isoformat(),
+            "weekday": date(2026, 12, day).strftime("%A"),
+            "brand_id": "B003", "process_id": "PR003",
+            "required_staffing": 2,
+        } for day in range(1, 32)]
+
+        result, state, offs = self.run_generation(dataset, requirements)
+
+        self.assertFalse(result["success"])
+        impossible = [error for error in result["errors"]
+                      if error["code"] == "weekly_off_infeasible"]
+        self.assertEqual(6, len(impossible))
+        self.assertEqual({"E003", "E004"}, {error["employee_id"] for error in impossible})
+        self.assertEqual({"2026-12-07", "2026-12-14", "2026-12-21"},
+                         {error["week_start"] for error in impossible})
+        self.assertTrue(all(error["exact_cause_established"] for error in impossible))
+        self.assertTrue(all(not weeks for weeks in offs.values()))
+        self.assertEqual([], state["roster"])
 
 
 if __name__ == "__main__":

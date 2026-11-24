@@ -90,6 +90,22 @@ def _generate_roster(
             for assignment in state["daily_assignments"].get(employee_id, {}).get(requirement["date"], ())
         )
 
+    # If a requirement has exactly as many candidates as required staff, every
+    # candidate is mandatory on that date. An employee cannot take a weekly off
+    # on any date where they are one of those mandatory candidates.
+    critical_requirements = {}
+    for requirement in requirements:
+        key = (requirement["date"], requirement["brand_id"], requirement["process_id"])
+        candidates = candidate_sets[key]
+        if len(candidates) == requirement["required_staffing"]:
+            for employee_id in candidates:
+                critical_requirements.setdefault((employee_id, requirement["date"]), []).append({
+                    "date": requirement["date"],
+                    "brand_id": requirement["brand_id"],
+                    "process_id": requirement["process_id"],
+                    "required_staffing": requirement["required_staffing"],
+                })
+
     # Get the first and last requirement dates
     requirement_dates = [
         date.fromisoformat(req["date"])
@@ -148,6 +164,7 @@ def _generate_roster(
     # --------------------------------------------------
 
     weekly_off_tasks = []
+    weekly_off_errors = []
 
     active_employees = [
         employee
@@ -188,13 +205,44 @@ def _generate_roster(
                 possible_dates.append(target_date)
 
             if not possible_dates:
-                return _failure(state, weekly_off_state, [{
+                weekly_off_errors.append({
                     "code": "no_weekly_off_date",
                     "employee_id": employee_id,
+                    "date": week_start,
                     "week_start": week_start,
                     "exact_cause_established": True,
                     "message": "No workable date free of approved time off exists in this calendar week."
-                }])
+                })
+                continue
+
+            blocking_requirements = [
+                item
+                for target_date in possible_dates
+                for item in critical_requirements.get((employee_id, target_date), [])
+            ]
+            blocked_dates = {item["date"] for item in blocking_requirements}
+            if len(blocked_dates) == len(possible_dates):
+                affected = sorted({
+                    f"{item['date']} {item['brand_id']}/{item['process_id']}"
+                    for item in blocking_requirements
+                })
+                weekly_off_errors.append({
+                    "code": "weekly_off_infeasible",
+                    "employee_id": employee_id,
+                    "date": week_start,
+                    "week_start": week_start,
+                    "workable_dates": possible_dates,
+                    "blocking_requirements": blocking_requirements,
+                    "exact_cause_established": True,
+                    "message": (
+                        "No weekly-off date is possible in this calendar week: "
+                        "this employee is required to meet minimum coverage on every workable date. "
+                        "Add another active eligible employee for the affected brand/process, "
+                        "or revise its minimum staffing or operating days. Blocking coverage: "
+                        + "; ".join(affected)
+                    ),
+                })
+                continue
 
             # Prefer dates with fewer staffing requirements
             possible_dates.sort(
@@ -213,6 +261,9 @@ def _generate_roster(
                 "week_start": week_start,
                 "possible_dates": possible_dates
             })
+
+    if weekly_off_errors:
+        return _failure(state, weekly_off_state, weekly_off_errors)
 
     # Employees with fewer possible off dates first
     weekly_off_tasks.sort(
