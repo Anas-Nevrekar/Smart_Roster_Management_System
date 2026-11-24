@@ -266,7 +266,7 @@ npm run build
 
 ### Backend on Render
 
-The root [`render.yaml`](render.yaml) is a Render Blueprint for the FastAPI service. In Render, create a **Blueprint** from this repository, review the `smart-roster-api` web service, and provide the secret `MONGODB_URI` when prompted. The service uses the `backend/` root directory, installs `requirements.txt`, and starts Uvicorn on Render's assigned port. Set `SMART_ROSTER_ALLOWED_FRONTEND_ORIGINS` to the deployed Vercel origin after creating the frontend deployment (for example, `https://your-project.vercel.app`, with no trailing slash).
+The root [`render.yaml`](render.yaml) is a Render Blueprint for the FastAPI service. In Render, create a **Blueprint** from this repository, review the `smart-roster-api` web service, and provide the secret `MONGODB_URI` when prompted. The service uses the `backend/` root directory, installs `requirements.txt`, and starts Uvicorn on Render's assigned port. `SMART_ROSTER_ALLOWED_FRONTEND_ORIGINS` must be a JSON array, for example `["http://localhost:5173"]` during local frontend testing.
 
 Render's free web services can sleep after inactivity and may take time to wake. Set `MONGODB_URI` only in Render's environment settings; never commit it. The Atlas database user needs least-privilege access to `smart_roster_dev`, and Atlas Network Access must allow connections from the Render service. For production, use an appropriate paid/static-egress setup rather than broadly opening database access.
 
@@ -275,7 +275,7 @@ Render's free web services can sleep after inactivity and may take time to wake.
 1. Import the same GitHub repository into Vercel.
 2. Set **Root Directory** to `frontend` and keep the Vite build command `npm run build` and output directory `dist`.
 3. Add `VITE_API_BASE_URL=https://<your-render-service>.onrender.com/api/v1` as a Vercel environment variable, then redeploy.
-4. Add the Vercel origin to Render's `SMART_ROSTER_ALLOWED_FRONTEND_ORIGINS` and redeploy the backend.
+4. Add the Vercel origin to Render's `SMART_ROSTER_ALLOWED_FRONTEND_ORIGINS` as a JSON array, for example `["http://localhost:5173","https://your-project.vercel.app"]`, then redeploy the backend.
 
 [`frontend/vercel.json`](frontend/vercel.json) routes client-side paths to the React application entry point. Do not put database credentials in frontend environment variables; Vite variables are public in the built client.
 
@@ -286,7 +286,7 @@ Render's free web services can sleep after inactivity and may take time to wake.
 | Render | `MONGODB_URI` | Secret Atlas connection string |
 | Render | `MONGODB_DATABASE` | Database name, normally `smart_roster_dev` |
 | Render | `STORAGE_BACKEND` | Use `mongodb` for persistence |
-| Render | `SMART_ROSTER_ALLOWED_FRONTEND_ORIGINS` | Allowed Vercel origin(s), comma-separated |
+| Render | `SMART_ROSTER_ALLOWED_FRONTEND_ORIGINS` | Allowed frontend origins as a JSON array, e.g. `["https://your-project.vercel.app"]` |
 | Vercel | `VITE_API_BASE_URL` | Public FastAPI base URL ending in `/api/v1` |
 
 ## Assessment response outline
