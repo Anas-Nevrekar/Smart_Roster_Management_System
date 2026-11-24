@@ -7,6 +7,7 @@ import { Input } from "../../components/ui/Input";
 import { Select } from "../../components/ui/Select";
 import { ConfirmDialog } from "../../components/ui/Dialog";
 import { Toast } from "../../components/ui/Toast";
+import { RosterLoadingOverlay } from "../../components/ui/RosterLoadingOverlay";
 import { useResource } from "../../hooks/useResource";
 import { getApiFailure } from "../../lib/api";
 import { masterDataService, rosterService } from "../../services/api";
@@ -62,6 +63,8 @@ export function MonthlyRosterPage() {
  const leave = useResource(masterDataService.timeOff);
  const holidays = useResource(masterDataService.publicHolidays);
  const [notice, setNotice] = useState<string | null>(null);
+ const [noticeTone, setNoticeTone] = useState<"success" | "error">("success");
+ const [rosterAction, setRosterAction] = useState<"generate" | "regenerate" | null>(null);
  const [diagnostics, setDiagnostics] = useState<Diagnostic[]>([]);
  const [regenerationDiagnostics, setRegenerationDiagnostics] = useState<Diagnostic[]>([]);
  const [validation, setValidation] = useState<ValidationResult | null>(null);
@@ -114,48 +117,49 @@ export function MonthlyRosterPage() {
  const visibleResultCount = viewName === "brand" ? brandResultCount : viewName === "process" ? processResultCount : viewName === "employee" ? employeeGroups.length : filteredGroups.length;
 
  function reload() { setRevision(value => value + 1); setViewRevision(value => value + 1); setValidation(null); setDiagnostics([]); }
+ function notify(message: string, tone: "success" | "error" = "success") { setNotice(message); setNoticeTone(tone); }
  function moveMonth(delta: number) { const next = new Date(year, month - 1 + delta, 1); setMonth(next.getMonth() + 1); setYear(next.getFullYear()); setPanel("roster"); setValidation(null); setDiagnostics([]); }
  async function generateRoster() {
-  setBusy(true); setGenerateConfirm(false); setNotice(null); setDiagnostics([]);
+  setBusy(true); setRosterAction("generate"); setGenerateConfirm(false); setNotice(null); setDiagnostics([]);
   try {
    const result = await rosterService.generate(month, year);
-   if (result.success && result.roster) { setNotice("Draft roster generated and saved."); reload(); }
-   else { setDiagnostics(result.diagnostics); setPanel("diagnostics"); setNotice("Generation found conflicts. No draft roster was saved."); }
-  } catch (error) { setNotice(showApiError(error)); reload(); }
-  finally { setBusy(false); }
+   if (result.success && result.roster) { notify("Draft roster generated and saved."); reload(); }
+   else { setDiagnostics(result.diagnostics); setPanel("diagnostics"); notify("Generation found conflicts. No draft roster was saved.", "error"); }
+  } catch (error) { notify(showApiError(error), "error"); reload(); }
+  finally { setBusy(false); setRosterAction(null); }
  }
  async function regenerateRoster() {
   if (!roster || roster.status !== "draft") return;
-  setBusy(true); setRegenerateConfirm(false); setNotice(null); setRegenerationDiagnostics([]);
+  setBusy(true); setRosterAction("regenerate"); setRegenerateConfirm(false); setNotice(null); setRegenerationDiagnostics([]);
   try {
    const result = await rosterService.regenerate(roster.id, roster.version);
-   if (result.success && result.roster) { setNotice("Draft roster regenerated from the latest master data."); reload(); }
-   else { setRegenerationDiagnostics(result.diagnostics); setNotice("Regeneration failed. Your previous saved roster has been preserved."); }
+   if (result.success && result.roster) { notify("Draft roster regenerated from the latest master data."); reload(); }
+   else { setRegenerationDiagnostics(result.diagnostics); notify("Regeneration failed. Your previous saved roster has been preserved.", "error"); }
   } catch (error) {
    const failure = getApiFailure(error);
-   setNotice(`Regeneration failed. Your previous saved roster has been preserved. ${failure.message}`);
+   notify(`Regeneration failed. Your previous saved roster has been preserved. ${failure.message}`, "error");
    if (failure.status === 409) { setRevision(value => value + 1); setViewRevision(value => value + 1); setValidation(null); }
-  } finally { setBusy(false); }
+  } finally { setBusy(false); setRosterAction(null); }
  }
  async function validateRoster() {
   if (!roster) return;
   setBusy(true);
-  try { const result = await rosterService.validate(roster.id); setValidation(result); setDiagnostics(result.errors); setPanel("diagnostics"); setNotice(result.valid ? "Backend validation passed." : "Backend validation found conflicts."); }
-  catch (error) { setNotice(showApiError(error)); }
+  try { const result = await rosterService.validate(roster.id); setValidation(result); setDiagnostics(result.errors); setPanel("diagnostics"); notify(result.valid ? "Backend validation passed." : "Backend validation found conflicts.", result.valid ? "success" : "error"); }
+  catch (error) { notify(showApiError(error), "error"); }
   finally { setBusy(false); }
  }
  async function publishRoster() {
   if (!roster) return;
   setBusy(true);
-  try { await rosterService.publish(roster.id); setPublishConfirm(false); setValidation(null); reload(); setNotice("Roster published."); }
-  catch (error) { setPublishConfirm(false); setNotice(showApiError(error)); reload(); }
+  try { await rosterService.publish(roster.id); setPublishConfirm(false); setValidation(null); reload(); notify("Roster published."); }
+  catch (error) { setPublishConfirm(false); notify(showApiError(error), "error"); reload(); }
   finally { setBusy(false); }
  }
  async function removeAssignment() {
   if (!roster || !deleteTarget) return;
   setBusy(true);
-  try { await rosterService.deleteAssignment(roster.id, deleteTarget.id, roster.version); setDeleteTarget(null); reload(); setNotice("Assignment removed after backend validation."); }
-  catch (error) { setDeleteTarget(null); setNotice(showApiError(error)); }
+  try { await rosterService.deleteAssignment(roster.id, deleteTarget.id, roster.version); setDeleteTarget(null); reload(); notify("Assignment removed after backend validation."); }
+  catch (error) { setDeleteTarget(null); notify(showApiError(error), "error"); }
   finally { setBusy(false); }
  }
 
@@ -164,7 +168,6 @@ export function MonthlyRosterPage() {
   <div className="flex items-center gap-2"><button aria-label="Previous month" className="rounded border p-2" onClick={() => moveMonth(-1)}><ChevronLeft size={16}/></button><Select aria-label="Roster month" value={month} onChange={e => { setMonth(Number(e.target.value)); setValidation(null); }} className="w-auto">{Array.from({ length: 12 }, (_, index) => index + 1).map(value => <option key={value} value={value}>{new Date(2000, value - 1).toLocaleString(undefined, { month: "long" })}</option>)}</Select><Select aria-label="Roster year" value={year} onChange={e => { setYear(Number(e.target.value)); setValidation(null); }} className="w-auto">{yearOptions.map(value => <option key={value}>{value}</option>)}</Select><button aria-label="Next month" className="rounded border p-2" onClick={() => moveMonth(1)}><ChevronRight size={16}/></button></div>
   <div className="flex flex-wrap items-center gap-3">{rosterList.loading ? <span className="text-sm text-slate-500">Checking saved roster…</span> : roster ? <><Badge tone={roster.status === "published" ? "green" : "amber"}>{roster.status}</Badge><span className="text-sm text-slate-500">Version {roster.version}</span></> : <Badge>Not generated</Badge>}{roster?.published_at && <span className="text-xs text-slate-500">Published {new Date(roster.published_at).toLocaleString()}</span>}</div>
  </section>
- {notice && <div role="status" className="mb-4 rounded-md border border-indigo-100 bg-indigo-50 p-3 text-sm text-indigo-900">{notice}<button className="ml-3 underline" onClick={() => setNotice(null)}>Dismiss</button></div>}
  {regenerationDiagnostics.length > 0 && <section className="mb-4 rounded-md border border-rose-200 bg-rose-50 p-3"><h2 className="mb-2 font-semibold text-rose-900">Latest regeneration attempt diagnostics</h2><DiagnosticsPanel diagnostics={regenerationDiagnostics}/></section>}
  {roster?.master_data_stale === true && <div role="status" className="mb-4 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">Master data has changed since this roster was generated. Regeneration is recommended.</div>}
  {roster?.master_data_stale === null && <div role="status" className="mb-4 rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">This roster predates master-data change tracking, so its freshness cannot be determined.</div>}
@@ -188,8 +191,9 @@ export function MonthlyRosterPage() {
  <ConfirmDialog open={generateConfirm} title={"Generate " + monthName + " " + year + " roster?"} message="Generation creates a saved draft only when the backend reports successful scheduling and validation. Existing rosters cannot be generated again." onCancel={() => setGenerateConfirm(false)} onConfirm={() => void generateRoster()}/>
  <ConfirmDialog open={regenerateConfirm} title={`Regenerate ${monthName} ${year} roster?`} message={`Current roster version: ${roster?.version ?? "—"}\nCurrent working assignments: ${roster?.assignment_count ?? 0}\nCurrent coverage gaps: ${coverage.data?.summary.coverage_gaps ?? summary?.coverage_gaps ?? "not available"}\n\nRegenerating this roster replaces the draft assignments and weekly offs using current employee availability, eligibility, approved leave, operating rules and public holidays. Any manual changes will be lost. If generation fails, the existing saved draft will be preserved.`} confirmLabel="Confirm Regeneration" disabled={busy} onCancel={() => setRegenerateConfirm(false)} onConfirm={() => void regenerateRoster()}/>
  <ConfirmDialog open={publishConfirm} title="Publish roster?" message="Publishing finalizes the draft. The backend validates again before publishing, and editing is disabled afterward." onCancel={() => setPublishConfirm(false)} onConfirm={() => void publishRoster()}/>
- {roster && <AssignmentEditor open={assignmentEditor !== null} roster={roster} assignment={assignmentEditor?.item ?? null} employees={employees.data ?? []} brands={brands.data ?? []} processes={processes.data ?? []} onClose={() => setAssignmentEditor(null)} onSaved={() => { setAssignmentEditor(null); reload(); setNotice("Assignment saved after backend validation."); }}/>}<DeleteAssignmentDialog assignment={deleteTarget} onClose={() => setDeleteTarget(null)} onConfirm={() => void removeAssignment()} busy={busy}/>
+ {roster && <AssignmentEditor open={assignmentEditor !== null} roster={roster} assignment={assignmentEditor?.item ?? null} employees={employees.data ?? []} brands={brands.data ?? []} processes={processes.data ?? []} onClose={() => setAssignmentEditor(null)} onSaved={() => { setAssignmentEditor(null); reload(); notify("Assignment saved after backend validation."); }}/>}<DeleteAssignmentDialog assignment={deleteTarget} onClose={() => setDeleteTarget(null)} onConfirm={() => void removeAssignment()} busy={busy}/>
  {roster && <ChangeImpactDialog open={impactOpen} roster={roster} employees={employees.data ?? []} brands={brands.data ?? []} processes={processes.data ?? []} onClose={() => setImpactOpen(false)}/>}
- <Toast message={notice} onDismiss={() => setNotice(null)}/>
+ <Toast message={notice} tone={noticeTone} onDismiss={() => setNotice(null)}/>
+ <RosterLoadingOverlay action={rosterAction} monthName={monthName} year={year}/>
  </>;
 }
