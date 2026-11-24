@@ -1,5 +1,41 @@
 # Smart Roster Management System
 
+## Assessment Questions and Answers
+
+### 1. How did you model employees, brands, processes, pods, and their relationships?
+
+Employees, brands, processes, and pods are stored as separate records, each with a unique ID. Separate relationship records connect employees to the brand and process combinations they can work on, and connect employees to their pods.
+
+### 2. How does your system generate a roster and determine whether it satisfies the required constraints?
+
+The system loads employees, eligibility, approved leave, and operating rules from the database. It first chooses weekly off days, checking that enough eligible employees remain to cover each brand and process. Then it assigns employees to daily staffing needs, using backtracking to try other choices if a conflict occurs. Finally, an independent validator checks coverage, eligibility, leave, duplicate assignments, and weekly off rules. The roster is returned only if those checks pass.
+
+### 3. How did you handle the difference between single-resource brands and brands with multiple employees?
+
+I treat each brand and process as a daily staffing requirement with a minimum number of employees. If a requirement needs one person, the minimum is 1; if it needs several, the algorithm assigns that many eligible employees and checks that all rules are met.
+
+### 4. What happens when an employee manages all processes for a brand but is unavailable on a required working day?
+
+The system first looks for other eligible employees who are available that day. If the unavailable employee is on approved leave, that leave remains in effect; if the employee is taking a weekly off, the algorithm can backtrack and try a different off day. If it cannot find enough staff after trying the valid options, generation fails with a diagnostic instead of returning an incomplete roster.
+
+### 5. How does your system handle conflicting requirements or insufficient staffing?
+
+It detects when too few eligible employees are available for a shift and reports the affected date, brand, and process. If requirements conflict because of weekly offs, it tries alternative choices using backtracking; if none work, it reports failure and does not return a partial roster.
+
+### 6. Which parts of the process did you automate, and which did you leave under human control? Why?
+
+The system automates building daily staffing needs, assigning weekly offs and employees, and checking the completed roster against the rules. A human remains in control of the master data and operating rules, and reviews the roster before deciding whether to publish it.
+
+### 7. If the company doubled its team and brand count, what would you change about your solution?
+
+If the company’s teams and brands doubled, I’d first measure how generation time grows and improve candidate lookups and search pruning. If backtracking became too slow or unreliable, I’d consider a constraint-programming solver such as Google OR-Tools, while keeping the same business rules and validation checks.
+
+### 8. If you had one additional week to work on this, what would you improve first?
+
+If I had one more week, I’d first make roster generation run as a background job. If someone wants rosters for two months, the second can wait in a queue while the first is being generated, and the user can keep using the rest of the system.
+
+I’d also like to add an AI assistant to make roster information easier to understand. For example, if there’s a coverage gap, it could explain, “There aren’t enough eligible employees available for this process on this date.” A manager could also ask, “Where is Anas working next Tuesday?” or “When is Anas’s next day off?” and the assistant could answer using verified roster data. I’d also improve scheduling speed and make the UI easier to use.
+
 A full-stack roster planning app for managing employees, brands, processes, pods, availability, operating rules, and monthly schedules. The React frontend and FastAPI backend live in one repository and can be deployed as two separate services.
 
 GitHub repository: [Anas-Nevrekar/Smart_Roster_Management_System](https://github.com/Anas-Nevrekar/Smart_Roster_Management_System)
@@ -17,8 +53,6 @@ GitHub repository: [Anas-Nevrekar/Smart_Roster_Management_System](https://github
 - Draft generation, manual assignments and change-impact previews, coverage/conflict diagnostics, validation, regeneration, versioning, and publishing.
 - Mandatory rules are validated independently of generation; invalid assignments do not count toward staffing and invalid rosters cannot be published.
 - MongoDB Atlas persistence, indexed collections, and an idempotent sample-data seed script.
-
-These features address the supplied assessment brief. The brief in the project instructions describes requirements but does not include the separate PDF questionnaire; add answers to any PDF-specific questions when that questionnaire is available.
 
 ## Problem and solution
 
@@ -38,6 +72,12 @@ The engine is implemented in `backend/app/scheduling_engine/`; FastAPI calls it 
 6. **Validate and audit independently.** The isolated engine worker checks the final assignments with `validator.validate_roster` and `roster_audit.audit_roster`. A result is successful only when the search succeeds and both checks are clean. Failed searches clear partial assignments and return diagnostics; invalid assignments do not count toward coverage and invalid rosters cannot be published.
 
 Backtracking provides a feasibility search, not a fairness score: there is no objective function that ranks otherwise valid rosters by employee preference or fairness. Its worst-case search time grows exponentially with the number of interacting choices. Candidate ordering and weekly coverage pruning reduce avoidable exploration, but cannot eliminate that worst case. When no roster is found, diagnostics distinguish directly proven shortages (such as no eligible staff or insufficient available staff) from an exhausted combined search where no single requirement can be named as the unique cause.
+
+### Hand-drawn scheduling flowchart
+
+![Hand-drawn flowchart of the Smart Roster scheduling process](docs/images/smart-roster-scheduling-flowchart.png)
+
+The flowchart shows how the system first tries weekly-off choices, then assigns staff to daily requirements. If a choice prevents a complete schedule, backtracking undoes it and tries another option. The Mermaid diagram below provides a text-based version.
 
 ```mermaid
 flowchart TD
