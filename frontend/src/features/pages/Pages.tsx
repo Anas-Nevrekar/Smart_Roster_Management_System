@@ -1,0 +1,25 @@
+import { useState } from "react";
+import { Button } from "../../components/ui/Button";
+import { Badge, EmptyState, ErrorState, Loading } from "../../components/ui/Feedback";
+import { Table } from "../../components/ui/Table";
+import { useResource } from "../../hooks/useResource";
+import { getApiFailure } from "../../lib/api";
+import { rosterService, masterDataService } from "../../services/api";
+import type { Brand, Employee, Pod, Process, OperatingRule, PublicHoliday, TimeOff } from "../../types/master-data";
+import type { Roster } from "../../types/roster";
+import { ResourcePage } from "./ResourcePage";
+const loadBrandsAndProcesses = async (): Promise<(Brand | Process)[]> => [...await masterDataService.brands(), ...await masterDataService.processes()];
+function RosterPage() {
+ const r = useResource(rosterService.list); const [busy, setBusy] = useState(false); const [notice, setNotice] = useState("");
+ async function generate() { setBusy(true); setNotice(""); try { const result = await rosterService.generate(new Date().getMonth() + 1, new Date().getFullYear()); setNotice(result.success ? "Draft roster generated." : `Generation found ${result.diagnostics.length} conflict(s): ${result.diagnostics.slice(0, 2).map(x => x.message ?? x.code).join("; ")}`); await r.retry(); } catch (e) { setNotice(getApiFailure(e).message); } finally { setBusy(false); } }
+ return <><div className="mb-6 flex flex-wrap items-start justify-between gap-4"><div><h1 className="text-2xl font-semibold tracking-tight">Monthly Roster</h1><p className="mt-1 text-sm text-slate-500">Review saved monthly drafts and published rosters.</p></div><Button onClick={() => void generate()} disabled={busy}>{busy ? "Generating…" : "Generate current month"}</Button></div>{notice && <div role="status" className="mb-4 rounded-md border border-indigo-100 bg-indigo-50 p-3 text-sm text-indigo-900">{notice}</div>}{r.loading ? <Loading label="Loading rosters"/> : r.error ? <ErrorState message={r.error} retry={() => void r.retry()}/> : !r.data?.length ? <EmptyState title="No rosters yet">Generate a monthly draft to get started.</EmptyState> : <Table headers={["Month", "Status", "Assignments", "Weekly offs", "Generated"]}>{r.data.map((item: Roster) => <tr key={item.id}><td className="px-4 py-3 font-medium">{new Date(item.year, item.month - 1).toLocaleString(undefined, { month: "long", year: "numeric" })}</td><td className="px-4 py-3"><Badge tone={item.status === "published" ? "green" : "amber"}>{item.status}</Badge></td><td className="px-4 py-3">{item.assignment_count}</td><td className="px-4 py-3">{item.weekly_off_count}</td><td className="px-4 py-3">{new Date(item.generated_at).toLocaleString()}</td></tr>)}</Table>}</>;
+}
+export const routePages = {
+ roster: RosterPage,
+ employees: () => <ResourcePage<Employee> title="Employees" description="Employee records from the roster service." load={masterDataService.employees} columns={[{ label: "Employee ID", value: x => x.employee_id }, { label: "Name", value: x => x.full_name }, { label: "Pod", value: x => x.pod_id ?? "—" }, { label: "Status", value: x => x.is_active ? "Active" : "Inactive" }]}/>,
+ brands: () => <ResourcePage<Brand | Process> title="Brands & Processes" description="Configured brands and processes available for staffing." load={loadBrandsAndProcesses} columns={[{ label: "Type", value: x => "brand_name" in x ? "Brand" : "Process" }, { label: "Name", value: x => "brand_name" in x ? x.brand_name : x.process_name }, { label: "ID", value: x => "brand_id" in x ? x.brand_id : x.process_id }, { label: "Status", value: x => x.is_active ? "Active" : "Inactive" }]}/>,
+ pods: () => <ResourcePage<Pod> title="Pods" description="Teams and their assigned pod leads." load={masterDataService.pods} columns={[{ label: "Pod", value: x => x.pod_name }, { label: "Pod ID", value: x => x.pod_id }, { label: "Lead", value: x => x.pod_lead_id ?? "—" }, { label: "Status", value: x => x.is_active ? "Active" : "Inactive" }]}/>,
+ leave: () => <ResourcePage<TimeOff> title="Leave & Availability" description="Time-off requests currently recorded by the backend." load={masterDataService.timeOff} columns={[{ label: "Employee", value: x => x.employee_id }, { label: "Type", value: x => x.time_off_type }, { label: "Dates", value: x => `${x.start_date} – ${x.end_date}` }, { label: "Status", value: x => x.status }]}/>,
+ rules: () => <ResourcePage<OperatingRule> title="Operating Rules" description="Brand and process staffing requirements." load={masterDataService.operatingRules} columns={[{ label: "Brand", value: x => x.brand_name ?? x.brand_id }, { label: "Process", value: x => x.process_name ?? x.process_id }, { label: "Operating days", value: x => x.operating_days.join(", ") }, { label: "Minimum staffing", value: x => x.minimum_staffing }]}/>,
+ holidays: () => <ResourcePage<PublicHoliday> title="Public Holidays" description="Public holiday dates used by operating rules." load={masterDataService.publicHolidays} columns={[{ label: "Holiday", value: x => x.holiday_name }, { label: "Date", value: x => x.holiday_date }, { label: "Description", value: x => x.description ?? "—" }]}/>,
+};

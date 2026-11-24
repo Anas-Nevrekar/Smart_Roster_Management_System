@@ -1,0 +1,1 @@
+"""Smart Roster API application."""

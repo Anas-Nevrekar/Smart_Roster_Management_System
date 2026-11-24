@@ -1,0 +1,7 @@
+import { Menu, X } from "lucide-react";
+import { useState } from "react";
+import { Outlet } from "react-router-dom";
+import { Sidebar } from "./Sidebar";
+import { useResource } from "../../hooks/useResource";
+import { healthService } from "../../services/api";
+export function AppLayout() { const [open, setOpen] = useState(false); const health = useResource(healthService.health); return <div className="min-h-screen bg-slate-50 text-slate-900 md:flex"><div className="hidden md:block"><Sidebar/></div>{open && <div className="fixed inset-0 z-20 flex md:hidden"><button aria-label="Close navigation" className="absolute inset-0 bg-slate-900/30" onClick={() => setOpen(false)}/><div className="relative h-full"><button aria-label="Close navigation" onClick={() => setOpen(false)} className="absolute right-2 top-5 z-10"><X/></button><Sidebar close={() => setOpen(false)}/></div></div>}<div className="min-w-0 flex-1"><header className="flex h-16 items-center justify-between border-b border-slate-200 bg-white px-5 md:px-8"><button aria-label="Open navigation" onClick={() => setOpen(true)} className="md:hidden"><Menu/></button><span className="text-sm font-medium text-slate-600">Roster Management</span><span className="text-xs text-slate-500" aria-live="polite">API {health.loading ? "checking" : health.error ? "unavailable" : health.data?.status ?? "connected"}</span></header><main className="mx-auto max-w-screen-2xl p-5 md:p-8"><Outlet/></main></div></div>; }
