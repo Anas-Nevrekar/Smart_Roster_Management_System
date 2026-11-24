@@ -69,7 +69,21 @@ class RosterManagementService:
         if existing["version"] != expected_version:
             raise ServiceError(409, "STALE_ROSTER_VERSION", "The roster changed since it was read. Refresh and retry.")
 
-        generated = RosterGenerationService(self.repository, self.engine).generate(existing["month"], existing["year"])
+        previous_assignments = self.repository.list_roster_assignments(roster_id)
+        preferred_schedule = {
+            "assignments": [
+                {"employee_id": item["employee_id"], "date": item["assignment_date"],
+                 "brand_id": item["brand_id"], "process_id": item["process_id"]}
+                for item in previous_assignments if item["status"] == "working"
+            ],
+            "weekly_offs": [
+                {"employee_id": item["employee_id"], "date": item["assignment_date"]}
+                for item in previous_assignments if item["status"] == "weekly_off"
+            ],
+        }
+        generated = RosterGenerationService(
+            self.repository, self.engine, preferred_schedule=preferred_schedule,
+        ).generate(existing["month"], existing["year"])
         if not generated["success"] or not generated["validation"]["is_valid"]:
             generated["roster"] = self.get_roster(roster_id)
             return generated

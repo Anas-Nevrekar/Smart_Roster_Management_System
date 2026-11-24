@@ -10,15 +10,22 @@ from app.repositories.contracts import MasterDataRepository
 
 
 class RosterGenerationService:
-    def __init__(self, repository: MasterDataRepository, engine: RosterEngineAdapter | None = None):
+    def __init__(self, repository: MasterDataRepository, engine: RosterEngineAdapter | None = None,
+                 preferred_schedule: dict[str, Any] | None = None):
         self.repository = repository
         self.engine = engine or RosterEngineAdapter()
+        self.preferred_schedule = preferred_schedule
 
     def generate(self, month: int, year: int) -> dict[str, Any]:
         dataset = map_repository_snapshot(self.repository.snapshot())
         fingerprint = generation_input_fingerprint(dataset)
         try:
-            result = self.engine.generate(dataset, month, year)
+            if self.preferred_schedule:
+                result = self.engine.generate(
+                    dataset, month, year, preferred_schedule=self.preferred_schedule,
+                )
+            else:
+                result = self.engine.generate(dataset, month, year)
         except EngineIntegrationError as exc:
             status_code = 422 if exc.code == "UNSUPPORTED_COVERAGE_OVERRIDES" else 500
             raise ServiceError(status_code, exc.code, exc.message) from exc

@@ -26,18 +26,20 @@ def generate_roster(
     dataset,
     requirements,
     state,
-    weekly_off_state
+    weekly_off_state,
+    preferred_schedule=None,
 ):
     """Serialize searches because the recursive search adjusts a process-wide limit."""
     with _GENERATION_LOCK:
-        return _generate_roster(dataset, requirements, state, weekly_off_state)
+        return _generate_roster(dataset, requirements, state, weekly_off_state, preferred_schedule)
 
 
 def _generate_roster(
     dataset,
     requirements,
     state,
-    weekly_off_state
+    weekly_off_state,
+    preferred_schedule=None,
 ):
     """
     Generate a monthly roster using recursive backtracking.
@@ -62,6 +64,16 @@ def _generate_roster(
             candidate_cache[key] = get_candidates(dataset, *key)
 
     candidate_sets = {key: set(value) for key, value in candidate_cache.items()}
+    preferred_schedule = preferred_schedule or {}
+    preferred_assignments = {
+        (item["date"], item["brand_id"], item["process_id"]): set()
+        for item in preferred_schedule.get("assignments", [])
+    }
+    for item in preferred_schedule.get("assignments", []):
+        preferred_assignments[(item["date"], item["brand_id"], item["process_id"])].add(item["employee_id"])
+    preferred_weekly_offs = {}
+    for item in preferred_schedule.get("weekly_offs", []):
+        preferred_weekly_offs[(item["employee_id"], get_week_start(item["date"]))] = item["date"]
 
     def requirement_key(requirement):
         return (requirement["date"], requirement["brand_id"], requirement["process_id"])
@@ -191,6 +203,10 @@ def _generate_roster(
                     if req["date"] == target_date
                 )
             )
+            preferred_off = preferred_weekly_offs.get((employee_id, week_start))
+            if preferred_off in possible_dates:
+                possible_dates.remove(preferred_off)
+                possible_dates.insert(0, preferred_off)
 
             weekly_off_tasks.append({
                 "employee_id": employee_id,
@@ -262,6 +278,9 @@ def _generate_roster(
         requirement = ordered_requirements[requirement_index]
 
         candidates = candidate_cache[requirement_key(requirement)]
+        preferred = preferred_assignments.get(requirement_key(requirement), set())
+        if preferred:
+            candidates = sorted(candidates, key=lambda employee_id: employee_id not in preferred)
 
         required_staffing = requirement["required_staffing"]
 

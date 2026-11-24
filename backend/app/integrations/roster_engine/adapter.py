@@ -19,8 +19,12 @@ class RosterEngineAdapter:
         if not (self.backend_root / "app" / "scheduling_engine" / "backtracking.py").is_file():
             raise EngineIntegrationError("ENGINE_NOT_FOUND", "The scheduling engine directory could not be located.")
 
-    def generate(self, dataset: dict[str, Any], month: int, year: int) -> dict[str, Any]:
-        return self._run({"mode": "generate", "dataset": dataset, "month": month, "year": year})
+    def generate(self, dataset: dict[str, Any], month: int, year: int,
+                 preferred_schedule: dict[str, Any] | None = None) -> dict[str, Any]:
+        return self._run({
+            "mode": "generate", "dataset": dataset, "month": month, "year": year,
+            "preferred_schedule": preferred_schedule or {},
+        })
 
     def validate(self, dataset: dict[str, Any], assignments: list[dict[str, Any]], weekly_offs: list[dict[str, Any]], month: int, year: int) -> dict[str, Any]:
         return self._run({

@@ -41,7 +41,10 @@ def run(payload):
     requirements = modules["preprocessing"].build_daily_requirements(data, month, year)
     state = {"roster": [], "daily_assignments": {}}
     weekly_off_state = modules["weekly_off"].initialize_weekly_off_state(data["employees"])
-    result = modules["backtracking"].generate_roster(data, requirements, state, weekly_off_state)
+    result = modules["backtracking"].generate_roster(
+        data, requirements, state, weekly_off_state,
+        preferred_schedule=payload.get("preferred_schedule"),
+    )
     validation = modules["validator"].validate_roster(data, requirements, state, weekly_off_state, month, year)
     audit = modules["roster_audit"].audit_roster(data, requirements, state["roster"], weekly_off_state, month, year)
     success = bool(result["success"] and validation["valid"] and _audit_is_clean(audit))
