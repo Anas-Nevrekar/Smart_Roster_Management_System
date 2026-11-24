@@ -5,10 +5,11 @@ import sys
 from threading import RLock
 
 from .candidate_selection import get_candidates
-from .assignment import can_assign, make_assignment, undo_assignment
+from .assignment import make_assignment, undo_assignment
 
 from .weekly_off import (
     get_week_start,
+    has_weekly_off,
     assign_weekly_off,
     undo_weekly_off
 )
@@ -49,6 +50,33 @@ def _generate_roster(
             "code": "no_requirements",
             "message": "No staffing requirements were supplied."
         }])
+
+    # Candidate eligibility, recurring availability, and approved leave do not
+    # change during a search. Compute them once so the recursive backtracking
+    # hot path only checks the decisions that can actually change: weekly offs
+    # and assignments already made for that employee/date.
+    candidate_cache = {}
+    for requirement in requirements:
+        key = (requirement["date"], requirement["brand_id"], requirement["process_id"])
+        if key not in candidate_cache:
+            candidate_cache[key] = get_candidates(dataset, *key)
+
+    candidate_sets = {key: set(value) for key, value in candidate_cache.items()}
+
+    def requirement_key(requirement):
+        return (requirement["date"], requirement["brand_id"], requirement["process_id"])
+
+    def can_assign_candidate(employee_id, requirement):
+        key = requirement_key(requirement)
+        if employee_id not in candidate_sets[key]:
+            return False
+        if has_weekly_off(weekly_off_state, employee_id, requirement["date"]):
+            return False
+        return not any(
+            assignment["brand_id"] == requirement["brand_id"]
+            and assignment["process_id"] == requirement["process_id"]
+            for assignment in state["daily_assignments"].get(employee_id, {}).get(requirement["date"], ())
+        )
 
     # Get the first and last requirement dates
     requirement_dates = [
@@ -197,24 +225,13 @@ def _generate_roster(
             if requirement_week != week_start:
                 continue
 
-            candidates = get_candidates(
-                dataset,
-                requirement["date"],
-                requirement["brand_id"],
-                requirement["process_id"]
-            )
+            candidates = candidate_cache[requirement_key(requirement)]
 
             valid_candidates = []
 
             for employee_id in candidates:
 
-                if can_assign(
-                    dataset,
-                    state,
-                    employee_id,
-                    requirement,
-                    weekly_off_state
-                ):
+                if can_assign_candidate(employee_id, requirement):
                     valid_candidates.append(employee_id)
 
             if len(valid_candidates) < requirement["required_staffing"]:
@@ -226,20 +243,25 @@ def _generate_roster(
     # STEP 4: Assign employees to staffing requirements
     # --------------------------------------------------
 
+    # Resolve tightest requirements first. A candidate shortage then fails
+    # early instead of exploring many assignments for looser requirements.
+    ordered_requirements = sorted(
+        requirements,
+        key=lambda requirement: (
+            len(candidate_cache[requirement_key(requirement)]) / max(1, requirement["required_staffing"]),
+            -requirement["required_staffing"],
+        ),
+    )
+
     def solve_requirements(requirement_index):
 
         # All requirements successfully fulfilled
         if requirement_index == len(requirements):
             return True
 
-        requirement = requirements[requirement_index]
+        requirement = ordered_requirements[requirement_index]
 
-        candidates = get_candidates(
-            dataset,
-            requirement["date"],
-            requirement["brand_id"],
-            requirement["process_id"]
-        )
+        candidates = candidate_cache[requirement_key(requirement)]
 
         required_staffing = requirement["required_staffing"]
 
@@ -254,13 +276,7 @@ def _generate_roster(
 
                 employee_id = candidates[i]
 
-                if not can_assign(
-                    dataset,
-                    state,
-                    employee_id,
-                    requirement,
-                    weekly_off_state
-                ):
+                if not can_assign_candidate(employee_id, requirement):
                     continue
 
                 assignment = make_assignment(
