@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 class RosterEngineAdapter:
     """Run the packaged engine in a fresh interpreter to isolate global state."""
 
-    def __init__(self, timeout_seconds: int = 120):
+    def __init__(self, timeout_seconds: int = 210):
         self.backend_root = Path(__file__).resolve().parents[3]
         self.timeout_seconds = timeout_seconds
         if not (self.backend_root / "app" / "scheduling_engine" / "backtracking.py").is_file():
